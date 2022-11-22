@@ -79,10 +79,11 @@ const (
 var (
 	record = flag.Bool("record", false, "record RPCs")
 
-	uidSpace       *uid.Space
-	uidSpaceGRPC   *uid.Space
-	bucketName     string
-	grpcBucketName string
+	uidSpace                 *uid.Space
+	uidSpaceGRPC             *uid.Space
+	bucketName               string
+	grpcBucketName           string
+	publicObjectInGRPCBucket string
 	// Use our own random number generator to isolate the sequence of random numbers from
 	// other packages. This makes it possible to use HTTP replay and draw the same sequence
 	// of numbers as during recording.
@@ -203,6 +204,17 @@ func initIntegrationTest() func() error {
 		if err := client.Bucket(grpcBucketName).Create(ctx, testutil.ProjID(), nil); err != nil {
 			log.Fatalf("creating bucket %q: %v", grpcBucketName, err)
 		}
+		w := client.Bucket(grpcBucketName).Object(publicObjectInGRPCBucket).NewWriter(ctx)
+		if _, err := io.Copy(w, bytes.NewReader(randomContents())); err != nil {
+			log.Fatalf("writing object %q: %v", publicObjectInGRPCBucket, err)
+		}
+		if err := w.Close(); err != nil {
+			log.Fatalf("w.Close on object %q: %v", publicObjectInGRPCBucket, err)
+		}
+		if err = client.Bucket(grpcBucketName).Object(publicObjectInGRPCBucket).ACL().Set(ctx, AllUsers, RoleReader); err != nil {
+			log.Fatalf("PutACLEntry failed with %v", err)
+		}
+
 		return cleanup
 	}
 }
@@ -212,6 +224,7 @@ func initUIDsAndRand(t time.Time) {
 	bucketName = uidSpace.New()
 	uidSpaceGRPC = uid.NewSpace(grpcTestPrefix, &uid.Options{Time: t, Short: true})
 	grpcBucketName = uidSpaceGRPC.New()
+	publicObjectInGRPCBucket = uidSpace.New()
 	// Use our own random source, to avoid other parts of the program taking
 	// random numbers from the global source and putting record and replay
 	// out of sync.
@@ -245,7 +258,7 @@ func testConfigGRPC(ctx context.Context, t *testing.T, opts ...option.ClientOpti
 
 	gc, err := newGRPCClient(ctx, opts...)
 	if err != nil {
-		t.Fatalf("newHybridClient: %v", err)
+		t.Fatalf("newGRPCClient: %v", err)
 	}
 
 	return
@@ -1160,7 +1173,6 @@ func TestIntegration_ConditionalDownload(t *testing.T) {
 }
 
 func TestIntegration_ObjectIteration(t *testing.T) {
-
 	multiTransportTest(context.Background(), t, func(t *testing.T, ctx context.Context, _ string, prefix string, client *Client) {
 		// Reset testTime, 'cause object last modification time should be within 5 min
 		// from test (test iteration if -count passed) start time.
@@ -1455,29 +1467,70 @@ func TestIntegration_Objects(t *testing.T) {
 		if o.Created.Before(bAttrs.Created) {
 			t.Errorf("Object %v is older than its containing bucket, %v", o, bAttrs)
 		}
+	})
+}
 
-		// Test public ACL.
-		publicObj := objects[0]
-		if err = bkt.Object(publicObj).ACL().Set(ctx, AllUsers, RoleReader); err != nil {
-			t.Errorf("PutACLEntry failed with %v", err)
-		}
-		publicClient, err := newTestClient(ctx, option.WithoutAuthentication())
+func TestIntegration_ObjectPublicACL(t *testing.T) {
+	// In TestMain we create a public object in a private bucket
+	multiTransportTest(context.Background(), t, func(t *testing.T, ctx context.Context, _ string, _ string, client *Client) {
+		o := client.Bucket(grpcBucketName).Object(publicObjectInGRPCBucket)
+
+		// We should be able to read it
+		r, err := o.NewReader(ctx)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("o.NewReader: %v", err)
+		
+		if _, err := io.Copy(io.Discard, r); err != nil {
+			t.Errorf("io.Copy: %v", err)
+		}
+		if err := r.Close(); err != nil {
+			t.Errorf("reader.Close: %v", err)
 		}
 
-		slurp := h.mustRead(publicClient.Bucket(newBucketName).Object(publicObj))
-		if !bytes.Equal(slurp, contents[publicObj]) {
-			t.Errorf("Public object's content: got %q, want %q", slurp, contents[publicObj])
-		}
-
-		// Test cannot write to read-only object without authentication.
-		wc := publicClient.Bucket(newBucketName).Object(publicObj).NewWriter(ctx)
+		// We should not be able to write to read-only object without authentication
+		wc := o.NewWriter(ctx)
 		if _, err := wc.Write([]byte("hello")); err != nil {
 			t.Errorf("Write unexpectedly failed with %v", err)
 		}
-		if err = wc.Close(); err == nil {
+		if err := wc.Close(); err == nil {
 			t.Error("Close expected an error, found none")
+		}
+	}, option.WithoutAuthentication())
+}
+
+// Test setting ACL on an object works as intended.
+func TestIntegration_ObjectACL(t *testing.T) {
+	multiTransportTest(context.Background(), t, func(t *testing.T, ctx context.Context, bucket string, _ string, client *Client) {
+		o := client.Bucket(bucket).Object("acl-obj" + uidSpace.New())
+
+		err := writeObject(ctx, o, "", randomContents())
+		if err != nil {
+			t.Fatalf("writeObject: %v", err)
+		}
+		defer func() {
+			if err := o.Delete(ctx); err != nil {
+				t.Errorf("o.Delete: %v", err)
+			}
+		}()
+
+		if err = o.ACL().Set(ctx, AllAuthenticatedUsers, RoleReader); err != nil {
+			t.Errorf("PutACLEntry failed with %v", err)
+		}
+
+		// Retry to account for propagation delay.
+		var acl []ACLRule
+		err = retry(ctx, func() error {
+			acl, err = o.ACL().List(ctx)
+			return err
+		}, func() error {
+			want := entityRoleACL{AllAuthenticatedUsers, RoleReader}
+			if !containsACLRule(acl, want) {
+				t.Errorf("object ACL rule %+v missing from ACL \n%+v", want, acl)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
 		}
 	})
 }
@@ -3258,11 +3311,11 @@ func TestIntegration_PublicBucket(t *testing.T) {
 	nonPublicObj := client.Bucket(bucketName).Object("noauth")
 	// Oddly, reading returns 403 but writing returns 401.
 	_, err = readObject(ctx, nonPublicObj)
-	if got, want := errCode(err), 403; got != want {
+	if got, want := errCode(err), http.StatusForbidden; got != want {
 		t.Errorf("got code %d; want %d\nerror: %v", got, want, err)
 	}
 	err = writeObject(ctx, nonPublicObj, "text/plain", []byte("b"))
-	if got, want := errCode(err), 401; got != want {
+	if got, want := errCode(err), http.StatusUnauthorized; got != want {
 		t.Errorf("got code %d; want %d\nerror: %v", got, want, err)
 	}
 }
