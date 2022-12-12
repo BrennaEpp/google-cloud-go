@@ -1758,9 +1758,9 @@ func (c *grpcStorageClient) ReadUsingXML() error {
 	return errMethodNotSupported
 }
 
-type StorageAPI string
+// type StorageAPI string
 
-const (
-	XML  StorageAPI = "XML"
-	JSON StorageAPI = "JSON"
-)
+// const (
+// 	XML  StorageAPI = "XML"
+// 	JSON StorageAPI = "JSON"
+// )
