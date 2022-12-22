@@ -992,6 +992,7 @@ func (c *httpStorageClient) newRangeReaderJSON(ctx context.Context, params *newR
 
 	setClientHeader(call.Header())
 	call.Context(ctx)
+	call.Projection("full")
 
 	if s.userProject != "" {
 		call.UserProject(s.userProject)

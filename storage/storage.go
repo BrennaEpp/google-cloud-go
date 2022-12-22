@@ -1710,6 +1710,8 @@ type Conditions struct {
 	// GenerationNotMatch specifies that the object must not have the given
 	// generation for the operation to occur.
 	// If GenerationNotMatch is zero, it has no effect.
+	// This condition only works for object reads if the WithJSONReads client
+	// option is set.
 	GenerationNotMatch int64
 
 	// DoesNotExist specifies that the object must not exist in the bucket for
@@ -1728,10 +1730,13 @@ type Conditions struct {
 	// MetagenerationNotMatch specifies that the object must not have the given
 	// metageneration for the operation to occur.
 	// If MetagenerationNotMatch is zero, it has no effect.
+	// This condition only works for object reads if the WithJSONReads client
+	// option is set.
 	MetagenerationNotMatch int64
 }
 
 func (c *Conditions) validate(method string) error {
+
 	if *c == (Conditions{}) {
 		return fmt.Errorf("storage: %s: empty conditions", method)
 	}

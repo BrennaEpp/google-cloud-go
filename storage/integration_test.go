@@ -208,7 +208,7 @@ func initIntegrationTest() func() error {
 }
 
 func initUIDsAndRand(t time.Time) {
-	uidSpace = uid.NewSpace(testPrefix, &uid.Options{Time: t, Short: true})
+	uidSpace = uid.NewSpace(testPrefix, &uid.Options{Time: t})
 	bucketName = uidSpace.New()
 	uidSpaceGRPC = uid.NewSpace(grpcTestPrefix, &uid.Options{Time: t, Short: true})
 	grpcBucketName = uidSpaceGRPC.New()
@@ -5165,7 +5165,8 @@ func skipGRPC(reason string) context.Context {
 }
 
 func skipHTTP(reason string) context.Context {
-	return context.WithValue(context.Background(), skipTransportTestKey("http"), reason)
+	ctx := context.WithValue(context.Background(), skipTransportTestKey("http"), reason)
+	return context.WithValue(ctx, skipTransportTestKey("jsonReads"), reason)
 }
 
 // Extract the error code if it's a googleapi.Error

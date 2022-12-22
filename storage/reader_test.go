@@ -38,7 +38,7 @@ func TestRangeReader(t *testing.T) {
 	hc, close := newTestServer(handleRangeRead)
 	defer close()
 	ctx := context.Background()
-	c, err := NewClient(ctx, option.WithHTTPClient(hc))
+	c, err := NewClient(ctx, option.WithHTTPClient(hc), WithJSONReads())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,6 @@ func TestContentEncodingGzipWithReader(t *testing.T) {
 	}{
 		{
 			"NewReader", func(cxt context.Context, obj *ObjectHandle) (*Reader, error) {
-				fmt.Println("new reader ----")
 				return obj.NewReader(ctx)
 			},
 		},
