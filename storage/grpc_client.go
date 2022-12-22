@@ -1749,11 +1749,3 @@ func checkCanceled(err error) error {
 
 	return err
 }
-
-func (c *grpcStorageClient) ReadUsingJSON() error {
-	return errMethodNotSupported
-}
-
-func (c *grpcStorageClient) ReadUsingXML() error {
-	return errMethodNotSupported
-}
