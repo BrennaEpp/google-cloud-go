@@ -61,10 +61,9 @@ type httpStorageClient struct {
 //
 // This is an experimental API and not intended for public use.
 func newHTTPStorageClient(ctx context.Context, opts ...storageOption) (storageClient, error) {
-	config := newStorageConfig(opts...)
-
 	s := initSettings(opts...)
 	o := s.clientOption
+	config := newStorageConfig(o...)
 
 	var creds *google.Credentials
 	// In general, it is recommended to use raw.NewService instead of htransport.NewClient

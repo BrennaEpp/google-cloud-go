@@ -50,7 +50,7 @@ func WithJSONReads() option.ClientOption {
 	return &withReadAPI{useJSON: true}
 }
 
-// WithJSONReads is an option that may be passed to a Storage Client on creation.
+// WithXMLReads is an option that may be passed to a Storage Client on creation.
 // It sets the client to use the JSON API for object reads. This is the current default.
 func WithXMLReads() option.ClientOption {
 	return &withReadAPI{useJSON: false}
