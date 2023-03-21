@@ -170,7 +170,9 @@ func main() {
 
 	log.Fatalln("Fatal to stderr, should cause os.Exit(1)")
 	log.Println("This should not be printed, 4th")
+}
 
+func _main() {
 	parseFlags()
 	rand.Seed(time.Now().UnixNano())
 	closePools := initializeClientPools(opts)
