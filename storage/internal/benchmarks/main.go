@@ -162,7 +162,15 @@ func parseFlags() {
 }
 
 func main() {
+	log.SetOutput(os.Stdout)
+	log.Println("Logging to stdout, 1st")
+
 	log.SetOutput(os.Stderr)
+	log.Println("Logging to stderr, 2nd")
+
+	log.Fatalln("Fatal to stderr, should cause os.Exit(1)")
+	log.Println("This should not be printed, 4th")
+
 	parseFlags()
 	rand.Seed(time.Now().UnixNano())
 	closePools := initializeClientPools(opts)
