@@ -27,6 +27,7 @@ import (
 	"google.golang.org/api/option"
 	htransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 // clientPool pools a number of Storage clients for use without blocking, ie.
@@ -202,6 +203,15 @@ func initializeGRPCClient(ctx context.Context, writeBufferSize, readBufferSize i
 	if readBufferSize != useDefault {
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithReadBufferSize(readBufferSize)))
 	}
+
+	opts = append(opts, option.WithGRPCDialOption(
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                time.Second * 31,
+			Timeout:             time.Second * 31,
+			PermitWithoutStream: false,
+		},
+		)),
+	)
 
 	clientMu.Lock()
 	os.Setenv("STORAGE_USE_GRPC", "true")
