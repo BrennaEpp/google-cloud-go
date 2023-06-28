@@ -205,6 +205,11 @@ func main() {
 	ctx, cancel := context.WithDeadline(context.Background(), start.Add(opts.timeout))
 	defer cancel()
 
+	go func() {
+		<-ctx.Done()
+		log.Printf("timeout set on command line exceeded")
+	}()
+
 	// Create bucket if necessary
 	if len(opts.bucket) < 1 {
 		opts.bucket = randomName(bucketPrefix)
