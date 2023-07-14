@@ -80,6 +80,7 @@ type benchmarkOptions struct {
 	numClients             int
 	workload               int
 	numObjectsPerDirectory int
+	endpoint               string
 }
 
 func (b *benchmarkOptions) validate() error {
@@ -157,6 +158,7 @@ func parseFlags() {
 	flag.Int64Var(&opts.minChunkSize, "min_chunksize", useDefault, "min chunksize in bytes")
 	flag.Int64Var(&opts.maxChunkSize, "max_chunksize", useDefault, "max chunksize in bytes")
 
+	flag.StringVar(&opts.endpoint, "endpoint", "", "endpoint to set on Storage Client")
 	flag.IntVar(&opts.connPoolSize, "connection_pool_size", 4, "GRPC connection pool size")
 
 	flag.BoolVar(&opts.forceGC, "force_garbage_collection", false, "force garbage collection at the beginning of each upload")

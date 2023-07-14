@@ -87,7 +87,7 @@ func initializeClientPools(ctx context.Context, opts *benchmarkOptions) func() {
 
 	nonBenchmarkingClients, closeNonBenchmarking = newClientPool(
 		func() (*storage.Client, error) {
-			return initializeHTTPClient(ctx, useDefault, useDefault, false)
+			return initializeHTTPClient(ctx, useDefault, useDefault, false, "")
 		},
 		1,
 	)
@@ -96,7 +96,7 @@ func initializeClientPools(ctx context.Context, opts *benchmarkOptions) func() {
 	if opts.api == mixedAPIs || opts.api == xmlAPI {
 		xmlClients, closeXML = newClientPool(
 			func() (*storage.Client, error) {
-				return initializeHTTPClient(ctx, opts.writeBufferSize, opts.readBufferSize, false)
+				return initializeHTTPClient(ctx, opts.writeBufferSize, opts.readBufferSize, false, opts.endpoint)
 			},
 			opts.numClients,
 		)
@@ -108,7 +108,7 @@ func initializeClientPools(ctx context.Context, opts *benchmarkOptions) func() {
 	if opts.api == mixedAPIs || opts.api == jsonAPI || opts.api == xmlAPI {
 		jsonClients, closeJSON = newClientPool(
 			func() (*storage.Client, error) {
-				return initializeHTTPClient(ctx, opts.writeBufferSize, opts.readBufferSize, true)
+				return initializeHTTPClient(ctx, opts.writeBufferSize, opts.readBufferSize, true, opts.endpoint)
 			},
 			opts.numClients,
 		)
@@ -118,7 +118,7 @@ func initializeClientPools(ctx context.Context, opts *benchmarkOptions) func() {
 	if opts.api == mixedAPIs || opts.api == grpcAPI || opts.api == directPath {
 		gRPCClients, closeGRPC = newClientPool(
 			func() (*storage.Client, error) {
-				return initializeGRPCClient(context.Background(), opts.writeBufferSize, opts.readBufferSize, opts.connPoolSize)
+				return initializeGRPCClient(context.Background(), opts.writeBufferSize, opts.readBufferSize, opts.connPoolSize, opts.endpoint)
 			},
 			opts.numClients,
 		)
@@ -156,8 +156,12 @@ func getClient(ctx context.Context, api benchmarkAPI) *storage.Client {
 // mutex on starting a client so that we can set an env variable for GRPC clients
 var clientMu sync.Mutex
 
-func initializeHTTPClient(ctx context.Context, writeBufferSize, readBufferSize int, json bool) (*storage.Client, error) {
+func initializeHTTPClient(ctx context.Context, writeBufferSize, readBufferSize int, json bool, endpoint string) (*storage.Client, error) {
 	opts := []option.ClientOption{}
+
+	if len(endpoint) > 0 {
+		opts = append(opts, option.WithEndpoint(endpoint))
+	}
 
 	if writeBufferSize != useDefault || readBufferSize != useDefault {
 		// We need to modify the underlying HTTP client
@@ -193,8 +197,12 @@ func initializeHTTPClient(ctx context.Context, writeBufferSize, readBufferSize i
 	return client, err
 }
 
-func initializeGRPCClient(ctx context.Context, writeBufferSize, readBufferSize int, connectionPoolSize int) (*storage.Client, error) {
+func initializeGRPCClient(ctx context.Context, writeBufferSize, readBufferSize int, connectionPoolSize int, endpoint string) (*storage.Client, error) {
 	opts := []option.ClientOption{option.WithGRPCConnectionPool(connectionPoolSize)}
+
+	if len(endpoint) > 0 {
+		opts = append(opts, option.WithEndpoint(endpoint))
+	}
 
 	if writeBufferSize != useDefault {
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithWriteBufferSize(writeBufferSize)))
