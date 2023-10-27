@@ -5,6 +5,7 @@ go 1.19
 require (
 	cloud.google.com/go/storage v1.33.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.19.1
+	github.com/cloudprober/cloudprober v0.12.8
 	github.com/google/uuid v1.3.1
 	go.opencensus.io v0.24.0
 	go.opentelemetry.io/contrib/detectors/gcp v1.18.0
@@ -16,6 +17,7 @@ require (
 	golang.org/x/sync v0.3.0
 	google.golang.org/api v0.140.0
 	google.golang.org/grpc v1.58.2
+	google.golang.org/protobuf v1.31.0
 )
 
 require (
@@ -51,5 +53,4 @@ require (
 	google.golang.org/genproto v0.0.0-20230911183012-2d3300fd4832 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230911183012-2d3300fd4832 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230911183012-2d3300fd4832 // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
 )
