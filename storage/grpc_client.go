@@ -165,7 +165,7 @@ func (c *grpcStorageClient) CreateBucket(ctx context.Context, project, bucket st
 	req := &storagepb.CreateBucketRequest{
 		Parent:   fmt.Sprintf("projects/%s", globalProjectAlias),
 		Bucket:   b,
-		BucketId: b.GetName(),
+		BucketId: bucket,
 	}
 	if attrs != nil {
 		req.PredefinedAcl = attrs.PredefinedACL
@@ -507,11 +507,14 @@ func (c *grpcStorageClient) GetObject(ctx context.Context, bucket, object string
 func (c *grpcStorageClient) UpdateObject(ctx context.Context, bucket, object string, uattrs *ObjectAttrsToUpdate, gen int64, encryptionKey []byte, conds *Conditions, opts ...storageOption) (*ObjectAttrs, error) {
 	s := callSettings(c.settings, opts...)
 	o := uattrs.toProtoObject(bucketResourceName(globalProjectAlias, bucket), object)
+	if gen >= 0 {
+		o.Generation = gen
+	}
 	req := &storagepb.UpdateObjectRequest{
 		Object:        o,
 		PredefinedAcl: uattrs.PredefinedACL,
 	}
-	if err := applyCondsProto("grpcStorageClient.UpdateObject", gen, conds, req); err != nil {
+	if err := applyCondsProto("grpcStorageClient.UpdateObject", defaultGen, conds, req); err != nil {
 		return nil, err
 	}
 	if s.userProject != "" {
@@ -1611,7 +1614,7 @@ func (w *gRPCWriter) uploadBuffer(recvd int, start int64, doneReading bool) (*st
 		// The first message on the WriteObject stream must either be the
 		// Object or the Resumable Upload ID.
 		if first {
-			ctx := gapic.InsertMetadata(w.ctx, metadata.Pairs("x-goog-request-params", "bucket="+url.QueryEscape(w.bucket)))
+			ctx := gapic.InsertMetadata(w.ctx, metadata.Pairs("x-goog-request-params", fmt.Sprintf("bucket=projects/_/buckets/%s", url.QueryEscape(w.bucket))))
 			w.stream, err = w.c.raw.WriteObject(ctx)
 			if err != nil {
 				return nil, 0, false, err
