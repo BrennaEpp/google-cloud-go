@@ -2,7 +2,7 @@ module main
 
 go 1.19
 
-replace cloud.google.com/go/storage => /Users/brennae/Desktop/google-cloud-go/storage
+replace cloud.google.com/go/storage => ../../../storage
 
 require (
 	cloud.google.com/go/storage v1.30.1
