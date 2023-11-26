@@ -17,10 +17,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"path"
 	"runtime"
+	"runtime/pprof"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -170,7 +172,7 @@ func (r *w1r3) run(ctx context.Context) error {
 			objectPath:          r.objectPath,
 			timeout:             r.opts.timeoutPerOp,
 		})
-	}, r.isWarmup)
+	}, r.isWarmup, false)
 
 	// Do not attempt to read from a failed upload
 	if err != nil {
@@ -200,7 +202,7 @@ func (r *w1r3) run(ctx context.Context) error {
 				downloadToDirectory: r.directoryPath,
 				timeout:             r.opts.timeoutPerOp,
 			})
-		}, r.isWarmup)
+		}, r.isWarmup, true)
 		if err != nil {
 			// We stop additional reads if one fails, as the iteration number would be off
 			return fmt.Errorf("download[%d]: %v", i, err)
@@ -210,7 +212,9 @@ func (r *w1r3) run(ctx context.Context) error {
 	return nil
 }
 
-func runOneSample(result *benchmarkResult, doOp func() (time.Duration, error), isWarmup bool) error {
+var pprofFileNum int
+
+func runOneSample(result *benchmarkResult, doOp func() (time.Duration, error), isWarmup bool, profile bool) error {
 	var memStats *runtime.MemStats = &runtime.MemStats{}
 
 	// If the option is specified, run the garbage collector before collecting
@@ -224,7 +228,20 @@ func runOneSample(result *benchmarkResult, doOp func() (time.Duration, error), i
 	result.startMem = *memStats
 	result.start = time.Now()
 
+	if profile {
+		file := fmt.Sprintf("cpu%d", pprofFileNum)
+		f, e := os.Create(file)
+		if e != nil {
+			log.Fatalf("Failed to create file %s: %v", "cpu", e)
+		}
+		defer f.Close()
+		pprof.StartCPUProfile(f)
+	}
 	timeTaken, err := doOp()
+
+	if profile {
+		pprof.StopCPUProfile()
+	}
 
 	runtime.ReadMemStats(memStats)
 	result.endMem = *memStats
