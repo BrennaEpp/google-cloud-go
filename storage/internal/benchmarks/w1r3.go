@@ -202,7 +202,7 @@ func (r *w1r3) run(ctx context.Context) error {
 				downloadToDirectory: r.directoryPath,
 				timeout:             r.opts.timeoutPerOp,
 			})
-		}, r.isWarmup, true)
+		}, r.isWarmup, i == 2)
 		if err != nil {
 			// We stop additional reads if one fails, as the iteration number would be off
 			return fmt.Errorf("download[%d]: %v", i, err)
@@ -230,12 +230,17 @@ func runOneSample(result *benchmarkResult, doOp func() (time.Duration, error), i
 
 	if profile {
 		file := fmt.Sprintf("cpu%d", pprofFileNum)
+		pprofFileNum++
 		f, e := os.Create(file)
 		if e != nil {
 			log.Fatalf("Failed to create file %s: %v", "cpu", e)
 		}
 		defer f.Close()
-		pprof.StartCPUProfile(f)
+		runtime.SetCPUProfileRate(200_000)
+		err := pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Println(err)
+		}
 	}
 	timeTaken, err := doOp()
 

@@ -302,7 +302,7 @@ func (r *directoryBenchmark) run(ctx context.Context) error {
 	// Upload
 	err := runOneSample(r.writeResult, func() (time.Duration, error) {
 		return r.uploadDirectory(ctx, r.numWorkers)
-	}, false)
+	}, false, false)
 
 	// Do not attempt to read from a failed upload
 	if err != nil {
@@ -312,7 +312,7 @@ func (r *directoryBenchmark) run(ctx context.Context) error {
 	// Download
 	err = runOneSample(r.readResult, func() (time.Duration, error) {
 		return r.downloadDirectory(ctx, r.numWorkers)
-	}, false)
+	}, false, false)
 	if err != nil {
 		return fmt.Errorf("download directory: %w", err)
 	}
