@@ -1,11 +1,12 @@
 #!/bin/bash
 
 NUM_FILES=$1
+START_AT=$(($2+0))
 
 # Loop over Numfiles int adding string to var
-FILES_TO_PPROF="cpu0"
+FILES_TO_PPROF="cpu$START_AT"
 
-for (( i=1 ; i<$NUM_FILES ; i++ ))
+for (( i=$START_AT+1 ; i<$NUM_FILES+$START_AT ; i++ ))
 do
 	FILES_TO_PPROF="$FILES_TO_PPROF cpu$i"
 done
