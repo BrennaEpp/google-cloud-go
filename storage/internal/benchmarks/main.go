@@ -101,6 +101,10 @@ type benchmarkOptions struct {
 	enableTracing   bool
 	traceSampleRate float64
 	warmup          time.Duration
+	warmupThreads   int
+
+	initialWindowSize int
+	initialConnWindow int
 }
 
 func (b *benchmarkOptions) validate() error {
@@ -200,8 +204,12 @@ func parseFlags() {
 	flag.IntVar(&opts.numObjectsPerDirectory, "directory_num_objects", 1000, "total number of objects in directory")
 
 	flag.DurationVar(&opts.warmup, "warmup", 0, "time to warmup benchmarks; w1r3 benchmarks will be run for this duration without recording any results")
+	flag.IntVar(&opts.warmupThreads, "warmupThreads", useDefault, "how many uploads/downloads to run concurrently during warmup")
 
 	flag.BoolVar(&serverMode, "server", false, "if true, script runs in cloudprober server mode")
+
+	flag.IntVar(&opts.initialConnWindow, "conn_window_size", useDefault, "grpc.WithInitialConnWindowSize")
+	flag.IntVar(&opts.initialWindowSize, "window_size", useDefault, "grpc.WithInitialWindowSize")
 
 	flag.Parse()
 

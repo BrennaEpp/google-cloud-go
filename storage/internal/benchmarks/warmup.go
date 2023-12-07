@@ -35,6 +35,10 @@ func warmupW1R3(ctx context.Context, opts *benchmarkOptions) error {
 	warmupGroup, ctx := errgroup.WithContext(ctx)
 	warmupGroup.SetLimit(runtime.NumCPU())
 
+	if opts.warmupThreads != useDefault {
+		warmupGroup.SetLimit(opts.warmupThreads)
+	}
+
 	for deadline := time.Now().Add(opts.warmup); time.Now().Before(deadline); {
 		warmupGroup.Go(func() error {
 			benchmark := &w1r3{opts: opts, bucketName: opts.bucket, isWarmup: true}

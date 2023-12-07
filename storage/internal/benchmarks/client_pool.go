@@ -137,6 +137,8 @@ func initializeClientPools(ctx context.Context, opts *benchmarkOptions) func() {
 					readBufferSize:     opts.readBufferSize,
 					connectionPoolSize: opts.connPoolSize,
 					endpoint:           opts.endpoint,
+					connWindowSize:     opts.initialConnWindow,
+					windowSize:         opts.initialWindowSize,
 				})
 			},
 			opts.numClients,
@@ -179,6 +181,7 @@ type clientConfig struct {
 	useJSON                         bool // only applicable to HTTP Clients
 	setGCSFuseOpts                  bool // only applicable to HTTP Clients
 	connectionPoolSize              int  // only applicable to GRPC Clients
+	windowSize, connWindowSize      int  // only GRPC
 }
 
 func initializeHTTPClient(ctx context.Context, config clientConfig) (*storage.Client, error) {
@@ -246,6 +249,14 @@ func initializeGRPCClient(ctx context.Context, config clientConfig) (*storage.Cl
 	}
 	if config.readBufferSize != useDefault {
 		opts = append(opts, option.WithGRPCDialOption(grpc.WithReadBufferSize(config.readBufferSize)))
+	}
+
+	if config.connWindowSize != useDefault {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithInitialConnWindowSize(int32(config.connWindowSize))))
+	}
+
+	if config.windowSize != useDefault {
+		opts = append(opts, option.WithGRPCDialOption(grpc.WithInitialWindowSize(int32(config.windowSize))))
 	}
 
 	client, err := storage.NewGRPCClient(ctx, opts...)
