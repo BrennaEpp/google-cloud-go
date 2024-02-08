@@ -29,7 +29,6 @@ import (
 	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
 	epb "github.com/cloudprober/cloudprober/probes/external/proto"
 	"github.com/cloudprober/cloudprober/probes/external/serverutils"
-	octrace "go.opencensus.io/trace"
 	"go.opentelemetry.io/contrib/detectors/gcp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/bridge/opencensus"
@@ -401,8 +400,7 @@ func enableTracing(ctx context.Context, sampleRate float64) func() {
 
 	// Use opencensus bridge to pick up OC traces from the storage library.
 	// TODO: remove this when migration to OpenTelemetry is complete.
-	tracer := otel.GetTracerProvider().Tracer(tracerName)
-	octrace.DefaultTracer = opencensus.NewTracer(tracer)
+	opencensus.InstallTraceBridge(opencensus.WithTracerProvider(tp))
 
 	return func() {
 		tp.ForceFlush(ctx)
