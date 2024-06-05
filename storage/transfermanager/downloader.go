@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/googleapis/gax-go/v2/callctx"
 )
 
 // Downloader manages a set of parallelized downloads.
@@ -272,7 +273,14 @@ func (in *DownloadObjectInput) downloadShard(client *storage.Client, timeout tim
 		offset, length = in.Range.Offset, in.Range.Length
 	}
 
+	method := downloadMany
+	if in.Range != nil && in.Range.Offset > 0 {
+		method = downloadSharded
+	}
+	ctx = setTMmetricHeader(ctx, method)
+
 	// Read.
+	fmt.Println("---------READ----------------------------------------------------------------------START")
 	r, err := o.NewRangeReader(ctx, offset, length)
 	if err != nil {
 		out.Err = err
@@ -292,6 +300,7 @@ func (in *DownloadObjectInput) downloadShard(client *storage.Client, timeout tim
 		out.Err = err
 		return
 	}
+	fmt.Println("---------READ----------------------------------------------------------------------END")
 
 	out.Attrs = &r.Attrs
 	return
@@ -305,4 +314,17 @@ type DownloadOutput struct {
 	Object string
 	Err    error                      // error occurring during download
 	Attrs  *storage.ReaderObjectAttrs // attributes of downloaded object, if successful
+}
+
+const (
+	xGoogHeaderKey  = "x-goog-api-client"
+	downloadMany    = "debugj"
+	downloadSharded = "download_sharded"
+)
+
+// Sets invocation ID headers on the context which will be propagated as
+// headers in the call to the service (for both gRPC and HTTP).
+func setTMmetricHeader(ctx context.Context, method string) context.Context {
+	header := fmt.Sprintf("gccl-gcs-cmd/tm.%s", method)
+	return callctx.SetHeaders(ctx, xGoogHeaderKey, header)
 }

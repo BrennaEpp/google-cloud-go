@@ -4,6 +4,8 @@ go 1.20
 
 retract [v1.25.0, v1.27.0] // due to https://github.com/googleapis/google-cloud-go/issues/6857
 
+//replace google.golang.org/api => /Users/brennae/Desktop/google-api-go-client/
+
 require (
 	cloud.google.com/go v0.114.0
 	cloud.google.com/go/compute/metadata v0.3.0
@@ -14,12 +16,14 @@ require (
 	github.com/googleapis/gax-go/v2 v2.12.4
 	golang.org/x/oauth2 v0.21.0
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
-	google.golang.org/api v0.182.0
+	//google.golang.org/api v0.180.0
 	google.golang.org/genproto v0.0.0-20240401170217-c3f982113cda
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157
 	google.golang.org/grpc v1.64.0
 	google.golang.org/protobuf v1.34.1
 )
+
+require google.golang.org/api v0.178.0
 
 require (
 	cloud.google.com/go/auth v0.4.2 // indirect
@@ -45,5 +49,5 @@ require (
 	golang.org/x/sys v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240521202816-d264139d666e // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240513163218-0867130af1f8 // indirect
 )

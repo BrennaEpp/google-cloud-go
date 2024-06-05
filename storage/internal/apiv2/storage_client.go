@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/googleapis/gax-go/v2/callctx"
+
 	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	storagepb "cloud.google.com/go/storage/internal/apiv2/storagepb"
 	gax "github.com/googleapis/gax-go/v2"
@@ -986,6 +988,7 @@ func (c *gRPCClient) DeleteBucket(ctx context.Context, req *storagepb.DeleteBuck
 	hds := []string{"x-goog-request-params", routingHeaders}
 
 	hds = append(c.xGoogHeaders, hds...)
+
 	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteBucket[0:len((*c.CallOptions).DeleteBucket):len((*c.CallOptions).DeleteBucket)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1038,7 +1041,12 @@ func (c *gRPCClient) CreateBucket(ctx context.Context, req *storagepb.CreateBuck
 	routingHeaders = strings.TrimSuffix(routingHeaders, "&")
 	hds := []string{"x-goog-request-params", routingHeaders}
 
-	hds = append(c.xGoogHeaders, hds...)
+//	hds = append(c.xGoogHeaders, hds...)
+
+fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<000002300000002000002000202000000000")
+	//ctx = callctx.SetHeaders(ctx, c.xGoogHeaders...)
+
+	ctx = callctx.MergeHeaders(ctx, " ", c.xGoogHeaders...)
 	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateBucket[0:len((*c.CallOptions).CreateBucket):len((*c.CallOptions).CreateBucket)], opts...)
 	var resp *storagepb.Bucket
@@ -1065,7 +1073,9 @@ func (c *gRPCClient) ListBuckets(ctx context.Context, req *storagepb.ListBuckets
 	routingHeaders = strings.TrimSuffix(routingHeaders, "&")
 	hds := []string{"x-goog-request-params", routingHeaders}
 
-	hds = append(c.xGoogHeaders, hds...)
+	//hds = append(c.xGoogHeaders, hds...)
+	ctx = callctx.SetHeaders(ctx, c.xGoogHeaders...)
+
 	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListBuckets[0:len((*c.CallOptions).ListBuckets):len((*c.CallOptions).ListBuckets)], opts...)
 	it := &BucketIterator{}

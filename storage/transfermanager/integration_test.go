@@ -19,12 +19,13 @@ import (
 	"context"
 	crand "crypto/rand"
 	"errors"
-	"flag"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"log"
 	"math/rand"
+	"net/http"
+	"net/http/httputil"
 	"sync"
 	"testing"
 	"time"
@@ -35,7 +36,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+	raw "google.golang.org/api/storage/v1"
+	htransport "google.golang.org/api/transport/http"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -53,32 +59,32 @@ var (
 	grpcTestBucket = downloadTestBucket{}
 )
 
-func TestMain(m *testing.M) {
-	flag.Parse()
+// func TestMain(m *testing.M) {
+// 	flag.Parse()
 
-	if err := httpTestBucket.Create(testPrefix); err != nil {
-		log.Fatalf("test bucket creation failed: %v", err)
-	}
+// 	if err := httpTestBucket.Create(testPrefix); err != nil {
+// 		log.Fatalf("test bucket creation failed: %v", err)
+// 	}
 
-	if err := grpcTestBucket.Create(grpcTestPrefix); err != nil {
-		log.Fatalf("test bucket creation failed: %v", err)
-	}
+// 	if err := grpcTestBucket.Create(grpcTestPrefix); err != nil {
+// 		log.Fatalf("test bucket creation failed: %v", err)
+// 	}
 
-	m.Run()
+// 	m.Run()
 
-	if err := httpTestBucket.Cleanup(); err != nil {
-		log.Printf("test bucket cleanup failed: %v", err)
-	}
-	if err := grpcTestBucket.Cleanup(); err != nil {
-		log.Printf("grpc test bucket cleanup failed: %v", err)
-	}
-	if err := deleteExpiredBuckets(testPrefix); err != nil {
-		log.Printf("expired http bucket cleanup failed: %v", err)
-	}
-	if err := deleteExpiredBuckets(grpcTestPrefix); err != nil {
-		log.Printf("expired grpc bucket cleanup failed: %v", err)
-	}
-}
+// 	if err := httpTestBucket.Cleanup(); err != nil {
+// 		log.Printf("test bucket cleanup failed: %v", err)
+// 	}
+// 	if err := grpcTestBucket.Cleanup(); err != nil {
+// 		log.Printf("grpc test bucket cleanup failed: %v", err)
+// 	}
+// 	if err := deleteExpiredBuckets(testPrefix); err != nil {
+// 		log.Printf("expired http bucket cleanup failed: %v", err)
+// 	}
+// 	if err := deleteExpiredBuckets(grpcTestPrefix); err != nil {
+// 		log.Printf("expired grpc bucket cleanup failed: %v", err)
+// 	}
+// }
 
 func TestIntegration_DownloaderSynchronous(t *testing.T) {
 	multiTransportTest(context.Background(), t, func(t *testing.T, ctx context.Context, c *storage.Client, tb downloadTestBucket) {
@@ -834,10 +840,7 @@ func multiTransportTest(ctx context.Context, t *testing.T, test func(*testing.T,
 }
 
 func initTransportClients(ctx context.Context) (map[string]*storage.Client, error) {
-	c, err := storage.NewClient(ctx)
-	if err != nil {
-		return nil, err
-	}
+	c := logBodyClient(ctx, true, false, storage.WithJSONReads())
 
 	gc, err := storage.NewGRPCClient(ctx)
 	if err != nil {
@@ -848,4 +851,210 @@ func initTransportClients(ctx context.Context) (map[string]*storage.Client, erro
 		"http": c,
 		"grpc": gc,
 	}, nil
+}
+
+func logBodyClient(ctx context.Context, logRequest, logResponse bool, opts ...option.ClientOption) *storage.Client {
+	if !logRequest && !logResponse {
+		client, err := storage.NewClient(ctx, opts...)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return client
+	}
+
+	// Create custom client that includes a logBody roundtripper.
+	base := http.DefaultTransport
+	trans, err := htransport.NewTransport(ctx, base, option.WithScopes(raw.DevstorageFullControlScope),
+		option.WithUserAgent("custom-user-agent"))
+	if err != nil {
+		log.Fatalf("creating transport: %+v", err)
+	}
+	c := http.Client{Transport: trans}
+
+	// Add RoundTripper to the created HTTP client.
+	c.Transport = logHTTP{
+		rt:          c.Transport,
+		logRequest:  logRequest,
+		logResponse: logResponse,
+	}
+
+	opts = append(opts, option.WithHTTPClient(&c))
+	// Supply this client to storage.NewClient
+	client, err := storage.NewClient(ctx, opts...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return client
+}
+
+// Roundtripper type which logs the request body.
+type logHTTP struct {
+	rt          http.RoundTripper
+	logRequest  bool
+	logResponse bool
+}
+
+func (lb logHTTP) RoundTrip(r *http.Request) (*http.Response, error) {
+	dump, err := httputil.DumpRequest(r, true)
+	if err != nil {
+		return nil, err
+	}
+	if lb.logRequest {
+		fmt.Printf("raw req: %v", string(dump))
+		fmt.Println("-------------------------------------------------------")
+	}
+
+	//r.
+	//r.Header.Set("Accept-Encoding", "gzip")
+
+	resp, err := lb.rt.RoundTrip(r)
+	if err != nil {
+		return resp, err
+	}
+	dump, err = httputil.DumpResponse(resp, true)
+	if lb.logResponse {
+		fmt.Printf("raw resp: %v", string(dump))
+		fmt.Println("-------------------------------------------------------")
+	}
+
+	return resp, err
+}
+
+func TestTemp(t *testing.T) {
+	ctx := context.Background()
+	bucket := "adaiweinweoirn22903-1716413169901272000-01"
+	bucket = "golang-grpc-test-1717050075267489000-02"
+	objects := []string{
+		"condread",
+		// "obj2",
+		// "obj/with/slashes",
+		// "obj/",
+		// "./obj",
+		// "!#$&'()*+,/:;=,?@,[] and spaces",
+	}
+
+	c := logBodyClient(context.Background(), false, false, storage.WithJSONReads())
+
+	c, e := storage.NewGRPCClient(context.Background(), option.WithGRPCDialOption(grpc.WithUnaryInterceptor(
+		func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			fmt.Println(method)
+			fmt.Println(req)
+
+			fmt.Println("Headers:")
+			md, ok := metadata.FromOutgoingContext(ctx)
+			if ok {
+				for k, vals := range md {
+					for _, v := range vals {
+						fmt.Printf("\t%s:%s\n", k, v)
+					}
+				}
+			}
+
+			// Complete the RPC.
+			err := invoker(ctx, method, req, reply, cc, opts...)
+
+			fmt.Println("Response:")
+			fmt.Println(reply)
+
+			return err
+		})), option.WithGRPCDialOption(grpc.WithStreamInterceptor(
+		func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+			fmt.Println(method)
+
+			fmt.Println("Headers:")
+			md, ok := metadata.FromOutgoingContext(ctx)
+			if ok {
+				for k, vals := range md {
+					for _, v := range vals {
+						fmt.Printf("\t%s:%s\n", k, v)
+					}
+				}
+			}
+
+			// Create client stream.
+			clientStream, err := streamer(ctx, desc, cc, method, opts...)
+
+			return clientStream, err
+		})),
+	)
+	if e != nil {
+		t.Fatal("client create failed")
+	}
+
+	i := 0
+	errfunc := func(err error) bool {
+		i++
+		if i > 2 {
+			return false
+		}
+		return true
+	}
+
+	c.Bucket("amedfoisanedfoiaesdn").Create(ctx, testutil.ProjID(), nil)
+	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+
+	opt := storage.WithErrorFunc(errfunc)
+
+	_, err := c.Bucket(bucket).Object("condread").Attrs(ctx)
+	if err != nil {
+		t.Errorf("attrs failed")
+	}
+
+	c.SetRetry(opt)
+
+	// Start a downloader. Give it a smaller amount of workers than objects,
+	// to make sure we aren't blocking anywhere.
+	d, err := NewDownloader(c, WithWorkers(2))
+	if err != nil {
+		t.Fatalf("NewDownloader: %v", err)
+	}
+	// Download several objects.
+	writers := make([]*testWriter, len(objects))
+	objToWriter := make(map[string]int) // so we can map the resulting content back to the correct object
+	for i, obj := range objects {
+		writers[i] = &testWriter{}
+		objToWriter[obj] = i
+		if err := d.DownloadObject(ctx, &DownloadObjectInput{
+			Bucket:      bucket,
+			Object:      obj,
+			Destination: writers[i],
+		}); err != nil {
+			t.Errorf("d.DownloadObject: %v", err)
+		}
+	}
+
+	results, err := d.WaitAndClose()
+	if err != nil {
+		t.Fatalf("d.WaitAndClose: %v", err)
+	}
+
+	// Close the writers so we can check the contents. This should be fine,
+	// since the downloads should all be complete after WaitAndClose.
+	for i := range objects {
+		if err := writers[i].Close(); err != nil {
+			t.Fatalf("testWriter.Close: %v", err)
+		}
+	}
+
+	// // Check the results.
+	for _, got := range results {
+		//writerIdx := objToWriter[got.Object]
+
+		if got.Err != nil {
+			t.Errorf("result.Err: %v", got.Err)
+			continue
+		}
+
+		// if want, got := tb.contentHashes[got.Object], writers[writerIdx].crc32c; got != want {
+		// 	t.Fatalf("content crc32c does not match; got: %v, expected: %v", got, want)
+		// }
+
+		// if got.Attrs.Size != tb.objectSize {
+		// 	t.Errorf("expected object size %d, got %d", tb.objectSize, got.Attrs.Size)
+		// }
+	}
+
+	if len(results) != len(objects) {
+		t.Errorf("expected to receive %d results, got %d results", len(objects), len(results))
+	}
 }
