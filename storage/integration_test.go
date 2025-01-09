@@ -213,10 +213,10 @@ func initIntegrationTest() func() error {
 			log.Fatalf("NewStorageControlClient: %v", err)
 		}
 		if err := client.Bucket(bucketName).Create(ctx, testutil.ProjID(), nil); err != nil {
-			log.Fatalf("creating bucket %q: %v", bucketName, err)
+			log.Fatalf("creating bucket %q in project %q: %v", bucketName, testutil.ProjID(), err)
 		}
 		if err := client.Bucket(grpcBucketName).Create(ctx, testutil.ProjID(), nil); err != nil {
-			log.Fatalf("creating bucket %q: %v", grpcBucketName, err)
+			log.Fatalf("creating grpc bucket %q in project %q: %v", grpcBucketName, testutil.ProjID(), err)
 		}
 		return cleanup
 	}
