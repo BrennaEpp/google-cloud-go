@@ -6046,6 +6046,132 @@ func TestIntegration_PostPolicyV4(t *testing.T) {
 	})
 }
 
+// Test that context cancellation correctly stops a multi range download before completion.
+func TestIntegration_MultiRangeDownloaderContextCancel(t *testing.T) {
+	var (
+		h       = testHelper{t}
+		objName = uidSpaceObjects.New()
+		objLen  = 5 << 20
+	)
+	multiTransportTest(skipHTTP("gRPC implementation specific test"), t, func(t *testing.T, ctx context.Context, bucket, _ string, client *Client) {
+		ctx, close := context.WithDeadline(ctx, time.Now().Add(time.Second*60))
+		defer close()
+
+		o := client.Bucket(bucket).Object(objName)
+		objHash := h.mustCreateObject(ctx, o, objLen)
+
+		// Create a multi-range-reader and then cancel the context before completing the reads.
+		ctx, cancel := context.WithCancel(ctx)
+		reader, err := o.NewMultiRangeDownloader(ctx)
+		if err != nil {
+			t.Fatalf("NewMultiRangeDownloader: %v", err)
+		}
+
+		//	firstRangeCompleted := make(chan bool)
+		res := make([]multiRangeDownloaderOutput, 3)
+		callback := func(x, y int64, err error) {
+			res[0].offset = x
+			res[0].limit = y
+			res[0].err = err
+			//	firstRangeCompleted <- true
+		}
+		callback1 := func(x, y int64, err error) {
+			res[1].offset = x
+			res[1].limit = y
+			res[1].err = err
+		}
+		callback2 := func(x, y int64, err error) {
+			res[2].offset = x
+			res[2].limit = y
+			res[2].err = err
+		}
+		// Add one range to the reader, and then cancel the context.
+		reader.Add(&res[0].buf, 0, int64(objLen), callback)
+		//<-firstRangeCompleted
+		cancel()
+
+		reader.Add(&res[1].buf, -10, 0, callback1)
+		reader.Add(&res[2].buf, 0, 10, callback2)
+		fmt.Println("going to wait")
+
+		reader.Wait() // flaky race cond?
+		fmt.Println("done wait")
+
+		for i, output := range res {
+			switch i {
+			case 0:
+				// First callback should succeed.
+				dataHash := crc32.Checksum(output.buf.Bytes(), crc32.MakeTable(crc32.Castagnoli))
+				if output.err != nil || objHash != dataHash {
+					t.Errorf("first range: want nil err and len %d; got offset %v, limit %v, err %v, len %d",
+						objLen, output.offset, output.limit, err, len(output.buf.Bytes()))
+				}
+			default:
+				// We should only get nil error for the first callback.
+				if err == nil {
+					t.Fatalf("range %d: want non-nil err; got offset %v, limit %v, err %v, len %d",
+						i, output.offset, output.limit, err, len(output.buf.Bytes()))
+				}
+				// Since the context was cancelled, remaining ranges result in
+				// context cancelled error or stream closed errors.
+				expectedErr := "stream is closed"
+				if !(strings.Contains(output.err.Error(), expectedErr) || errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled) {
+					t.Fatalf("range %d, read range %v to %v: got error %q, want context.Canceled or stream is closed error", i, output.offset, output.limit, output.err)
+				}
+			}
+		}
+		if err = reader.Close(); err != nil {
+			t.Fatalf("reader.Close: %v", err)
+		}
+	})
+}
+
+func TestIntegration_MultiRangeDownloaderSuddenClose(t *testing.T) {
+	var (
+		h       = testHelper{t}
+		objName = uidSpaceObjects.New()
+		objLen  = 5 << 20
+	)
+	multiTransportTest(skipHTTP("gRPC implementation specific test"), t, func(t *testing.T, ctx context.Context, bucket string, _ string, client *Client) {
+		o := client.Bucket(bucket).Object(objName)
+		h.mustCreateObject(ctx, o, objLen)
+
+		reader, err := o.NewMultiRangeDownloader(ctx)
+		if err != nil {
+			t.Fatalf("NewMultiRangeDownloader: %v", err)
+		}
+		res := make([]multiRangeDownloaderOutput, 3)
+		callback := func(x, y int64, err error) {
+			res[0].offset = x
+			res[0].limit = y
+			res[0].err = err
+		}
+		callback1 := func(x, y int64, err error) {
+			res[1].offset = x
+			res[1].limit = y
+			res[1].err = err
+		}
+		callback2 := func(x, y int64, err error) {
+			res[2].offset = x
+			res[2].limit = y
+			res[2].err = err
+		}
+		// Add three ranges on the reader, and then do a sudden close.
+		reader.Add(&res[0].buf, 0, int64(objLen), callback)
+		reader.Close()
+		reader.Add(&res[1].buf, -10, 0, callback1)
+		reader.Add(&res[2].buf, 0, 10, callback2)
+		// we can get stream is closed, can't add range error in case process is over before we add the range.
+		expErr := "stream is closed"
+		expErr2 := "stream closed early"
+		for _, r := range res {
+			if r.err == nil || !(strings.Contains(r.err.Error(), expErr) || strings.Contains(r.err.Error(), expErr2)) {
+				t.Fatalf("read range %v to %v: got error %v, want stream closed error", r.offset, r.limit, r.err)
+			}
+		}
+	})
+}
+
 // Verify that custom scopes passed in by the user are applied correctly.
 func TestIntegration_Scopes(t *testing.T) {
 	ctx := skipExtraReadAPIs(context.Background(), "no reads in test")
@@ -6638,6 +6764,31 @@ func (h testHelper) mustWrite(w *Writer, data []byte) {
 	}
 }
 
+// mustCreateObject writes an object with random contents to GCS and deletes it
+// at the end of the test. It returns the crc32c sum of the object contents.
+func (h testHelper) mustCreateObject(ctx context.Context, o *ObjectHandle, size int) uint32 {
+	h.t.Helper()
+
+	w := o.Retryer(WithPolicy(RetryAlways)).NewWriter(ctx)
+	crc := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	mw := io.MultiWriter(w, crc)
+
+	if _, err := io.CopyN(mw, cryptorand.Reader, int64(size)); err != nil {
+		w.Close()
+		h.t.Fatalf("write object %q to bucket %q: %v", w.o.ObjectName(), w.o.BucketName(), err)
+	}
+	if err := w.Close(); err != nil {
+		h.t.Fatalf("close write object %q to bucket %q: %v", w.o.ObjectName(), w.o.BucketName(), err)
+	}
+
+	h.t.Cleanup(func() {
+		if err := o.Delete(context.Background()); err != nil {
+			h.t.Errorf("failed to clean up object %q", o.ObjectName())
+		}
+	})
+	return crc.Sum32()
+}
+
 func (h testHelper) mustRead(obj *ObjectHandle) []byte {
 	h.t.Helper()
 	data, err := readObject(context.Background(), obj)
@@ -6680,7 +6831,6 @@ func writeContents(w *Writer, contents []byte) error {
 
 func writeObject(ctx context.Context, obj *ObjectHandle, contentType string, contents []byte) error {
 	w := newWriter(ctx, obj, contentType, false)
-
 	return writeContents(w, contents)
 }
 
@@ -6688,7 +6838,6 @@ func newWriter(ctx context.Context, obj *ObjectHandle, contentType string, force
 	w := obj.Retryer(WithPolicy(RetryAlways)).NewWriter(ctx)
 	w.ContentType = contentType
 	w.ForceEmptyContentType = forceEmptyContentType
-
 	return w
 }
 

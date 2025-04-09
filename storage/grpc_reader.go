@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"sync"
 
 	"cloud.google.com/go/internal/trace"
 	"cloud.google.com/go/storage/internal/apiv2/storagepb"
@@ -31,6 +32,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
+
+const maxReadRangesPerRequest int = 100
 
 // Below is the legacy implementation of gRPC downloads using the ReadObject API.
 // It's used by gRPC if the experimental option WithGRPCBidiReads was not passed.
@@ -862,4 +865,29 @@ func (r *gRPCReadObjectReader) reopenStream() error {
 	r.currMsg = res.decoder
 	r.cancel = cancel
 	return nil
+}
+
+// readIDGenerator generates unique read IDs for multi-range reads.
+// Call readIDGenerator.Next to get the next ID. Safe to be called concurrently.
+type readIDGenerator struct {
+	initOnce sync.Once
+	nextId   chan int64
+}
+
+func (g *readIDGenerator) init() {
+	g.nextId = make(chan int64, 1)
+	g.nextId <- 1
+}
+
+// Next returns the Next read ID. It initializes the readIDGenerator if needed.
+func (g *readIDGenerator) Next() int64 {
+	if g.nextId == nil {
+		g.initOnce.Do(g.init)
+	}
+
+	id := <-g.nextId
+	n := id + 1
+	g.nextId <- n
+
+	return id
 }
